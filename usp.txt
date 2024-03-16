@@ -1,0 +1,331 @@
+#!/bin/bash
+
+PATIENTS_FILE="patients.txt"
+APPOINTMENTS_FILE="appointments.txt"
+
+# Function to authenticate users
+authenticate() {
+    username=$(dialog --inputbox "Username:" 8 40 3>&1 1>&2 2>&3)
+    password=$(dialog --passwordbox "Password:" 8 40 3>&1 1>&2 2>&3)
+
+    # Check if the username and password match
+    if [ "$username" = "admin" ] && [ "$password" = "adminpassword" ]; then
+        role="admin"
+    elif [ "$username" = "user" ] && [ "$password" = "userpassword" ]; then
+        role="user"
+    else
+        dialog --msgbox "Invalid username or password" 8 40
+        exit 1
+    fi
+}
+
+# Function to add a new patient
+add_patient() {
+
+    name=$(dialog --inputbox "Name:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$name" =~ ^[a-zA-Z]+(_[a-zA-Z]+)?$ ]]; do
+            dialog --msgbox "Invalid input. Please enter a valid name like 'Abay' or 'Abhay_Singh'.'" 8 40
+            name=$(dialog --inputbox "Patient Name:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+
+
+    age=$(dialog --inputbox "Age:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$age" =~ ^[0-9]+$ && ( "$age" -ge 0 && "$age" -le 120 ) ]]; do
+            dialog --msgbox "Age must be a valid number between 0 and 120. Please enter a valid age." 8 40
+            age=$(dialog --inputbox "Age:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+
+    gender=$(dialog --inputbox "Gender:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$gender" =~ ^[MF]$ ]]; do
+            dialog --msgbox "Invalid input. Please enter 'M' or 'F' only." 8 40
+            gender=$(dialog --inputbox "Gender:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+
+    diagnosis=$(dialog --inputbox "Diagnosis:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$diagnosis" =~ ^[a-zA-Z]+$ ]]; do
+            dialog --msgbox "Invalid input. Please enter alphabets only!!" 8 40
+            diagnosis=$(dialog --inputbox "Diagnosis:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+    department=$(dialog --inputbox "Department:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$department" =~ ^[a-zA-Z]+$ ]]; do
+            dialog --msgbox "Invalid input. Please enter alphabets only!!" 8 40
+            department=$(dialog --inputbox "Department:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+
+    doctor=$(dialog --inputbox "Doctor:" 8 40 3>&1 1>&2 2>&3)
+     while ! [[ "$doctor" =~ ^Dr\.[a-zA-Z]+([[:space:]][a-zA-Z]+)?$ ]]; do
+            dialog --msgbox "Invalid input. Please enter alphabets only and name must start with Dr." 8 50
+            doctor=$(dialog --inputbox "Doctor name:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+
+    contact=$(dialog --inputbox "Contact_patient:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$contact" =~ ^[0-9]{10}$ ]]; do
+        dialog --msgbox "Contact must be a valid number and of 10 digits only. Please enter a valid contact." 8 50
+        contact=$(dialog --inputbox "Contact_patient:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+    # Check if patients.txt exists, if not, create it
+    if [ ! -f "$PATIENTS_FILE" ]; then
+        touch "$PATIENTS_FILE"
+    fi
+
+    # Count the number of patients and generate the next ID
+    if [ -s "$PATIENTS_FILE" ]; then
+        id=$(( $(tail -n 1 "$PATIENTS_FILE" | cut -d ' ' -f 1) + 1))
+    else
+        id=1
+    fi
+
+    # Append to patients.txt
+    echo "$id $name $age $gender $diagnosis $department $doctor $contact" >> "$PATIENTS_FILE"
+    dialog --msgbox "Patient added successfully with ID: $id" 8 40
+}
+
+# Function to list patients
+list_patients() {
+    if [ "$role" = "admin" ]; then
+        tmpfile=$(mktemp /tmp/patients_list.XXXXXX)
+        awk 'BEGIN {printf "%-5s%-20s%-10s%-10s%-25s%-25s%-20s%-15s\n", "ID", "Name", "Age", "Gender", "Diagnosis", "Department", "Doctor", "Contact"}
+        {printf "%-5s%-20s%-10s%-10s%-25s%-25s%-20s%-15s\n", $1, $2, $3, $4, $5, $6, $7, $8}' "$PATIENTS_FILE" > "$tmpfile"
+
+        dialog --textbox "$tmpfile" 20 130
+
+        # Clean up the temporary file
+        rm -f "$tmpfile"
+    elif [ "$role" = "user" ]; then
+        id_input=$(dialog --inputbox "Enter the patient ID to search details:" 8 40 --output-fd 1)
+
+        if [ -n "$id_input" ]; then
+            patient_line=$(grep "^$id_input " "$PATIENTS_FILE")
+
+            if [ -n "$patient_line" ]; then
+                id=$(echo "$patient_line" | cut -d ' ' -f 1)
+                name=$(echo "$patient_line" | cut -d ' ' -f 2)
+                age=$(echo "$patient_line" | cut -d ' ' -f 3)
+                gender=$(echo "$patient_line" | cut -d ' ' -f 4)
+                diagnosis=$(echo "$patient_line" | cut -d ' ' -f 5)
+                department=$(echo "$patient_line" | cut -d ' ' -f 6)
+                doctor=$(echo "$patient_line" | cut -d ' ' -f 7)
+                contact=$(echo "$patient_line" | cut -d ' ' -f 8)
+
+                # Display patient details neatly
+                dialog --msgbox "ID: $id\nName: $name\nAge: $age\nGender: $gender\nDiagnosis: $diagnosis\nDepartment: $department\nDoctor: $doctor\nContact: $contact" 20 90
+            else
+                dialog --msgbox "No patient details found for the specified ID." 8 40
+            fi
+        else
+            dialog --msgbox "Please enter a valid patient ID." 8 40
+        fi
+    fi
+}
+
+
+
+# Function to sort patients by name
+sort_patients() {
+    if [ -f "$PATIENTS_FILE" ]; then
+        sorted_file=$(mktemp /tmp/sorted_patients.XXXXXX)
+        sort -t ' ' -k 2 "$PATIENTS_FILE" | \
+        awk 'BEGIN {printf "%-5s%-20s%-10s%-10s%-25s%-25s%-20s%-15s\n", "ID", "Name", "Age", "Gender", "Diagnosis", "Department", "Doctor", "Contact"}
+             {printf "%-5s%-20s%-10s%-10s%-25s%-25s%-20s%-15s\n", $1, $2, $3, $4, $5, $6, $7, $8}' > "$sorted_file"
+
+        dialog --title "Sorted Patients" --textbox "$sorted_file" 20 130
+
+        # Clean up the temporary file
+        rm -f "$sorted_file"
+    else
+        dialog --msgbox "Patients file not found." 8 40
+    fi
+}
+
+
+
+
+# Function to delete a patient
+delete_patient() {
+    id=$(dialog --inputbox "Enter the ID of the patient to delete:" 8 40 3>&1 1>&2 2>&3)
+
+    # Check if the ID is provided
+    if [ -z "$id" ]; then
+        dialog --msgbox "Patient ID cannot be empty." 8 40
+        return
+    fi
+
+    # Check if the ID is present in the file
+    if ! grep -q "^$id " "$PATIENTS_FILE"; then
+        dialog --msgbox "Patient with ID $id not found." 8 40
+        return
+    fi
+
+    # Remove the line with the given ID
+    sed -i "/^$id /d" "$PATIENTS_FILE"
+
+    dialog --msgbox "Patient with ID $id deleted successfully" 8 40
+}
+
+# Function to book an appointment
+book_appointment() {
+    # Get patient ID with validation
+    while true; do
+        patient_id=$(dialog --inputbox "Enter patient ID for appointment booking:" 8 40 3>&1 1>&2 2>&3)
+
+        # Check if the ID is a number
+        if ! [[ "$patient_id" =~ ^[0-9]+$ ]]; then
+            dialog --msgbox "Invalid input. Please enter a valid patient ID (numeric)." 8 40
+        else
+            # Check if the ID is present in the patients.txt file
+            if grep -q "^$patient_id " "$PATIENTS_FILE"; then
+                # Check if the ID is already present in the appointments.txt file
+                if grep -q "^$patient_id " "$APPOINTMENTS_FILE"; then
+                    # Patient already has an existing appointment
+                    choice=$(dialog --menu "Appointment already booked for patient ID $patient_id" 8 40 2 \
+                        1 "Book Another Appointment" \
+                        2 "Return to User Menu" 3>&1 1>&2 2>&3)
+
+                    case $choice in
+                        1) continue ;;  # Continue the loop to allow booking another appointment
+                        2) return ;;    # Return to the user menu
+                        *) continue ;;  # Default to continue the loop
+                    esac
+                else
+                    break
+                fi
+            else
+                dialog --msgbox "Patient ID $patient_id not found. Please enter a valid ID." 8 40
+            fi
+        fi
+    done
+
+    department=$(dialog --inputbox "Department:" 8 40 3>&1 1>&2 2>&3)
+    while ! [[ "$department" =~ ^[a-zA-Z]+$ ]]; do
+        dialog --msgbox "Invalid input. Please enter alphabets only!!" 8 40
+        department=$(dialog --inputbox "Department:" 8 40 3>&1 1>&2 2>&3)
+    done
+
+    # Get and validate appointment date and time
+    while true; do
+        appointment_datetime=$(dialog --inputbox "Enter appointment date and time (e.g., 2024-02-20 14:30):" 8 40 3>&1 1>&2 2>&3)
+
+        # Validate date and time format
+        if ! date -d "$appointment_datetime" &>/dev/null; then
+            dialog --msgbox "Invalid date and time format. Please enter a valid format (YYYY-MM-DD HH:MM)." 8 60
+        else
+            break
+        fi
+    done
+
+    # Check if appointments.txt exists, if not, create it
+    if [ ! -f "$APPOINTMENTS_FILE" ]; then
+        touch "$APPOINTMENTS_FILE"
+    fi
+
+    # Append to appointments.txt
+    echo "$patient_id $department $appointment_datetime" >> "$APPOINTMENTS_FILE"
+
+    dialog --msgbox "Appointment booked successfully for patient ID $patient_id in $department on $appointment_datetime" 8 60
+}
+
+# Function to check booked appointment status
+check_appointment_status() {
+    if [ "$role" = "admin" ]; then
+        if [ -f "$APPOINTMENTS_FILE" ]; then
+            temp_file=$(tempfile)
+
+            # Display appointments using awk in rows and columns
+            awk 'BEGIN {printf "%-5s%-25s%-15s%-15s\n", "ID", "Department", "Date", "Time"}
+                 {printf "%-5s%-25s%-15s%-15s\n", $1, $2, $3, $4}' "$APPOINTMENTS_FILE" > "$temp_file"
+
+            dialog --textbox "$temp_file" 20 60
+
+            # Remove temporary file
+            rm -f "$temp_file"
+        else
+            dialog --msgbox "No appointments booked yet." 8 40
+        fi
+    elif [ "$role" = "user" ]; then
+        # Ask for ID input
+        id_input=$(dialog --inputbox "Enter the patient ID to check appointments:" 8 40 --output-fd 1)
+
+        if [ -f "$APPOINTMENTS_FILE" ] && grep -q "^$id_input " "$PATIENT_FILE" "$APPOINTMENTS_FILE"; then
+            # Display appointments for the specific ID
+            temp_file_id=$(tempfile)
+            grep "^$id_input " "$APPOINTMENTS_FILE" | awk '{printf "%-5s%-15s%-15s%-15s\n", $1, $2, $3, $4}' > "$temp_file_id"
+            dialog --textbox "$temp_file_id" 20 60
+            rm -f "$temp_file_id"
+        else
+            dialog --msgbox "Patient ID not found or no appointments booked for the user." 8 40
+        fi
+    fi
+}
+cancel_appointment() {
+    # Ask for ID input
+    id_input=$(dialog --inputbox "Enter the patient ID to cancel appointment:" 8 40 --output-fd 1)
+
+    if [ -f "$APPOINTMENTS_FILE" ] && grep -q "^$id_input " "$APPOINTMENTS_FILE"; then
+        # Temporarily store the data for the canceled appointment
+        canceled_appointment=$(grep "^$id_input " "$APPOINTMENTS_FILE")
+
+        # Remove the canceled appointment from the appointments file
+        sed -i "/^$id_input /d" "$APPOINTMENTS_FILE"
+
+        # Display information about the canceled appointment
+        dialog --msgbox "Appointment for Patient ID $id_input has been canceled:\n$canceled_appointment" 20 60
+    else
+        dialog --msgbox "Patient ID not found or no appointment booked for the user." 8 40
+    fi
+}
+
+
+# Main authentication
+authenticate
+
+# Main menu based on user role
+if [ "$role" = "admin" ]; then
+    while true; do
+        choice=$(dialog --menu "Admin Menu" 15 60 8 \
+            1 "Add Patient" \
+            2 "List Patients" \
+            3 "Sort Patients" \
+            4 "Delete Patients" \
+            5 "Book Appointment" \
+            6 "Check Appointment Status" \
+            7 "Cancel Appointment" \
+            8 "Exit" 3>&1 1>&2 2>&3)
+
+        case $choice in
+            1) add_patient ;;
+            2) list_patients ;;
+            3) sort_patients ;;
+            4) delete_patient ;;
+            5) book_appointment ;;
+            6) check_appointment_status ;;
+            7) cancel_appointment ;;
+            8) clear && exit ;;
+            *) dialog --msgbox "Invalid choice" 8 40;;
+        esac
+    done
+elif [ "$role" = "user" ]; then
+    while true; do
+        choice=$(dialog --menu "User Menu" 12 60 6 \
+            1 "List Patient" \
+            2 "Book Appointment" \
+            3 "Check Appointment Status" \
+            4 "Cancel Appointment" \
+            5 "Exit" 3>&1 1>&2 2>&3)
+
+        case $choice in
+            1) list_patients ;;
+            2) book_appointment ;;
+            3) check_appointment_status ;;
+            4) cancel_appointment ;;
+            5) clear && exit ;;
+            *) dialog --msgbox "Invalid choice" 8 40;;
+        esac
+    done
+fi
